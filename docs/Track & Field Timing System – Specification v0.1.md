@@ -240,4 +240,41 @@ The prototype is ready for training sessions by the end of January; each gate mu
 | External amplifier input (level, connector) | Audio output stage |
 | Laptop operating system | Capture backend (section 6) |
 | Start-list CSV from your club | Import format (section 7) |
-| Real frame rate of the OV9281 on your laptop at 1280 × 800 MJPG | Go or no-go for M1 (test 6) |
+| Real frame rate of the OV9281 on your laptop at 1280 × 800 MJPG (some listings of the B0332 say 100 fps, not 120) | Go or no-go for M1 (test 6) |
+| External trigger input of the B0332: pins, voltage, maximum rate, behaviour in trigger mode | Option in section 11 |
+
+## 11. Option to evaluate later: camera triggered by the start unit
+
+**Status: idea, not tested, not part of v0.1.** To be tried on the M1 prototype before any decision.
+
+**Idea.** The Arducam B0332 (OV9281) has reserved trigger pads and is documented to take one image on each rising edge of an external signal. If the start unit's ESP32 generated that trigger at a fixed rate from its own timer, every frame would be locked to the start unit's clock. The start time and the frame times would then share one timeline, and the beacon flash and the reference LED would no longer be needed for timing.
+
+**What it would change**
+
+| Today (sections 4 to 8) | With a triggered camera |
+| --- | --- |
+| t0 is the first frame showing the start LED: start quantised to one frame | t0 is a time on the trigger timeline, so the start falls between two known frame edges and keeps its sub-frame position. Only the finish is quantised |
+| f measured from the reference LED in every recording | f is the trigger rate, set by the ESP32 crystal |
+| δ_link = L_link + L_LED − L_audio | the LED term disappears; the trigger-to-exposure delay and the trigger line delay are measured once instead |
+
+**Unknowns (why this is only an option)**
+
+- USB buffering: UVC frames arrive in order but carry no trigger number, and the host arrival time is not usable. The match between frames and triggers rests on counting.
+- A dropped trigger pulse (noise on a long cable) or a dropped frame (USB) shifts every later frame by one, silently. A cheap check stays necessary, for example a reference LED or a small frame-counter LED in view.
+- Alignment: the laptop counts frames from the start of its capture, the start unit counts triggers from the moment it enabled them. Something must tie the two, such as a marker flash at t0, which brings back a reduced beacon.
+- Maximum trigger rate of this sensor and board at 1280 × 800, exposure behaviour in trigger mode, trigger-to-exposure delay and its jitter.
+- Trigger line: the start unit and the camera are about 100 m apart. The line (for example RS485 on the existing cable) adds a constant delay to measure, and must not lose pulses.
+- The start unit must run the trigger continuously before a race; a reboot restarts the timeline.
+- A buyer review reports the trigger function as buggy on this board. Check Arducam's trigger documentation for the exact wiring and the mode setting.
+
+**Test plan on the M1 prototype (ESP32 plus B0332, laptop)**
+
+1. Find the trigger pads and voltage level in the Arducam documentation; wire an ESP32 pin to them.
+   Tools: the start unit firmware has `camtrig` (continuous or exactly N pulses) and `firmware/tools/camera_count.py` counts the frames.
+2. Frame count: trigger at 60, 100 and 120 Hz for 10 minutes each; the number of frames received must equal the number of pulses sent. Repeat with other USB traffic on the laptop. Note the highest rate that stays exact.
+3. Dropped pulses: remove pulses on purpose and see how the loss shows in the video and whether a reference LED reveals it.
+4. Trigger-to-exposure delay: flash an LED from the same ESP32 at a known offset from a trigger edge; the flash must appear in the expected frame, and the spread of that delay over 1000 triggers is recorded.
+5. Known-interval test (test 7): two flashes a known time apart; mean error near 0 and sigma 4 ms or less, ideally better than the beacon method.
+6. Long line: repeat step 2 with 100 m of cable between the ESP32 and the camera.
+
+**Go criterion (proposal).** No unnoticed frame shift in 10 hours of trigger running or 200 simulated races, a known-interval sigma better than the beacon method, and a trigger rate of at least 120 Hz. If it fails, the beacon method stays as designed.
