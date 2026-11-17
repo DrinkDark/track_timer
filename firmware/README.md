@@ -7,6 +7,7 @@ ESP32-S3 (WROOM-1U) firmware for the two field units of the spec (sections 3 to 
 | `common/beacon_protocol.h` | the 9-byte link packet, CRC-8, stream re-sync and duplicate filter (plain C, shared) |
 | `beacon/` | beacon: start LED, reference LED, link indicator, self-test (spec section 4) |
 | `start_unit/` | start unit: pistol input, sound out, start packet on cable and radio (spec section 3) |
+| `nano_tester/` | Arduino Nano stand-in for the beacon (3 LEDs, 2 buttons) to try the camera and blink detection before the real hardware |
 | `tools/beacon_link.py` | PC side of the protocol; sends start/ping through a USB-RS485 adapter for bench tests |
 | `tools/upload_sound.py` | loads the pistol sound into the start unit |
 | `test/test_protocol.c` | host test of the protocol header (`cc -I common test/test_protocol.c && ./a.out`) |
