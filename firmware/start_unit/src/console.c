@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "audio.h"
+#include "camtrig.h"
 #include "driver/usb_serial_jtag.h"
 #include "esp_system.h"
 #include "esp_timer.h"
@@ -48,6 +49,9 @@ static void help(void)
          "  fire                         software trigger: sound + start packets, like a pistol pulse\n"
          "  play                         play the sound locally only (volume check)\n"
          "  ping [n]                     n pings per link, prints loss and round trip (range test)\n"
+         "  camtrig <hz>                 camera trigger on PIN_CAM_TRIG, 1-250 Hz, until 'camtrig off' (spec section 11)\n"
+         "  camtrig burst <n> <hz>       exactly n pulses, then stops and prints $CAMTRIG done\n"
+         "  camtrig off | count          stop | print the pulse count\n"
          "  sound upload <bytes> <crc32> raw 16-bit mono 44.1 kHz PCM follows (use tools/upload_sound.py)\n"
          "  sound default                forget the stored sound, use the built-in one\n"
          "  save | defaults | reboot");
@@ -85,6 +89,20 @@ static void handle(char *line)
     else if (!strcmp(a, "edge") && n >= 2) { g_cfg.edge_rising = !strcmp(b, "rise"); trigger_set_edge(g_cfg.edge_rising); puts("ok"); }
     else if (!strcmp(a, "ch") && n >= 2) { int v = atoi(b); if (v < 1 || v > 13) puts("refused: 1-13"); else { g_cfg.channel = (uint8_t)v; links_set_channel(v); puts("ok"); } }
     else if (!strcmp(a, "heartbeat") && n >= 2) { int v = atoi(b); if (v < 0 || v > 255) puts("refused: 0-255"); else { g_cfg.heartbeat_s = (uint8_t)v; puts("ok"); } }
+    else if (!strcmp(a, "camtrig") && n >= 2) {
+        if (!strcmp(b, "off")) { camtrig_stop(); puts("camtrig off"); }
+        else if (!strcmp(b, "count")) {
+            camtrig_state_t c = camtrig_state();
+            printf("$CAMTRIG running=%d target_hz=%.3f actual_hz=%.5f pulses=%lu limit=%lu last_rise_us=%lld\n", c.running,
+                   c.target_hz, c.actual_hz, (unsigned long)c.pulses, (unsigned long)c.limit, (long long)c.last_rise_us);
+        } else if (!strcmp(b, "burst")) {
+            char cnt[16] = "", hz[16] = "";
+            if (sscanf(line, "%*s %*s %15s %15s", cnt, hz) != 2 || atol(cnt) < 1 || !camtrig_start(strtof(hz, NULL), (uint32_t)atol(cnt)))
+                puts("usage: camtrig burst <n> <hz 1-250>");
+            else printf("$CAMTRIG burst n=%s hz=%s started\n", cnt, hz);
+        } else if (camtrig_start(strtof(b, NULL), 0)) printf("$CAMTRIG started target_hz=%.3f\n", camtrig_state().actual_hz);
+        else puts("usage: camtrig <hz 1-250> | burst <n> <hz> | off | count");
+    }
     else if (!strcmp(a, "fire")) trigger_fire_software();
     else if (!strcmp(a, "play")) audio_play_from_isr();
     else if (!strcmp(a, "ping")) links_ping_test(n >= 2 ? atoi(b) : 20);

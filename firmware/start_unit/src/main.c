@@ -1,6 +1,7 @@
 #include <driver/gpio.h>
 
 #include "audio.h"
+#include "camtrig.h"
 #include "console.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -40,6 +41,7 @@ void app_main(void)
     audio_init();
     links_init();
     trigger_init();
+    camtrig_init();
     xTaskCreate(status_task, "status", 2048, NULL, 2, NULL);
     console_start();
     ESP_LOGI("start_unit", "armed: source %d, lockout %u ms, channel %u", g_cfg.source, g_cfg.lockout_ms, g_cfg.channel);

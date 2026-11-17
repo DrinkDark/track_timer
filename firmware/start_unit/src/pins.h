@@ -7,6 +7,8 @@
 #define PIN_TEST_TRIG   13  /* goes high in the trigger interrupt: the "trigger test pin" for the logic analyzer
                                (spec sections 5 and 9, tests 2-4); cleared 200 us later */
 #define PIN_LED_STATUS  7
+#define PIN_CAM_TRIG    14  /* camera trigger output (option, spec section 11): rising edge = one frame.
+                               3.3 V logic: check the level the camera board expects before connecting. */
 
 #define PIN_I2S_BCK     9   /* PCM5102A: BCK, LRCK(WS), DIN. SCK tied low (internal PLL), no MCLK needed. */
 #define PIN_I2S_WS      10
