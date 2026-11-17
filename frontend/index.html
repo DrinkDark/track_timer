@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Track timing</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <strong class="brand">Track timing</strong>
+  <label>Session <select id="session"></select></label>
+  <button id="btn-new-session" title="Start a new session">New session</button>
+  <label class="btn" title="CSV columns: event, heat, lane, bib, name, club, category">Import start list
+    <input id="file-startlist" type="file" accept=".csv,.txt" hidden></label>
+  <button id="btn-new-race" title="Add a race without a start list">+ Quick race</button>
+  <span class="spacer"></span>
+  <a id="exp-csv" class="btn" href="#">CSV</a>
+  <a id="exp-pdf" class="btn" href="#">PDF</a>
+  <button id="btn-calib">Calibration</button>
+  <button id="btn-settings">Settings</button>
+</header>
+
+<main id="main">
+  <div id="sp-list" class="split v" title="Drag to resize (double-click to reset)"></div>
+  <div id="sp-res" class="split v" title="Drag to resize (double-click to reset)"></div>
+  <div id="sp-row" class="split h" title="Drag to resize (double-click to reset)"></div>
+  <section id="racelist" class="panel">
+    <h2>Race list</h2>
+    <div id="racelist-body"></div>
+  </section>
+
+  <section id="live" class="panel">
+    <h2>Live capture <span id="badge" class="badge idle">IDLE</span></h2>
+    <div class="live-row">
+      <div class="live-view">
+        <img id="live-img" alt="">
+        <canvas id="live-overlay"></canvas>
+        <div id="live-empty">No camera frames yet</div>
+      </div>
+      <div class="live-side">
+        <div class="btns">
+          <button id="btn-arm" class="primary">Arm</button>
+          <button id="btn-disarm">Disarm</button>
+          <button id="btn-sim" hidden>Simulate start</button>
+        </div>
+        <div id="live-msg" class="muted"></div>
+        <table class="kv" id="live-kv"></table>
+        <label class="muted">Place on image
+          <select id="place"></select></label>
+      </div>
+    </div>
+  </section>
+
+  <section id="review" class="panel">
+    <h2>Race review <span id="review-title" class="muted"></span>
+      <span id="lane-chips" class="chips"></span>
+      <span class="spacer"></span>
+      <span class="hint muted">1 – 9 picks a lane · click the strip to place its marker · ← → move (shift = 10) · Del removes</span>
+      <button id="btn-dir" title="Direction of time on the strip">Time ←</button>
+      <button id="zoom-fit" title="Fit the whole recording to the width">Fit</button>
+      <button id="zoom-out" title="Zoom out">−</button>
+      <button id="zoom-in" title="Zoom in">+</button></h2>
+    <div class="review-row">
+      <div id="strip-scroll"><canvas id="strip"></canvas><div id="strip-empty">No recording selected</div></div>
+      <div class="frame-view">
+        <div class="frame-wrap"><img id="frame-img" alt=""><canvas id="frame-overlay"></canvas></div>
+        <div id="frame-info" class="muted"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="results" class="panel">
+    <h2>Results</h2>
+    <div id="results-body"></div>
+    <div class="btns">
+      <button id="btn-undo" title="Undo (Ctrl/Cmd+Z)">Undo</button>
+      <button id="btn-redo" title="Redo (Ctrl/Cmd+Shift+Z)">Redo</button>
+      <button id="btn-lock">Lock race</button>
+      <button id="btn-reanalyze" title="Run the detection again with the current settings">Re-detect</button>
+    </div>
+    <div id="warnings"></div>
+  </section>
+</main>
+
+<dialog id="dlg-calib">
+  <form method="dialog">
+    <h3>Latency calibration (milliseconds)</h3>
+    <p class="muted">δ<sub>link</sub> = L<sub>link</sub> + L<sub>LED</sub> − L<sub>audio</sub>. Measure with a logic analyzer (spec section 5).</p>
+    <label>Audio latency L<sub>audio</sub> <input name="audio_ms" type="number" step="0.01"></label>
+    <label>LED switching L<sub>LED</sub> <input name="led_ms" type="number" step="0.01"></label>
+    <label>Cable latency <input name="cable_ms" type="number" step="0.01"></label>
+    <label>Radio latency <input name="radio_ms" type="number" step="0.01"></label>
+    <label>Note <input name="note" type="text"></label>
+    <div class="btns"><button value="cancel">Cancel</button><button id="calib-save" value="ok" class="primary">Save</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-settings">
+  <form method="dialog">
+    <h3>Settings (JSON)</h3>
+    <textarea id="settings-text" spellcheck="false"></textarea>
+    <div class="btns"><button value="cancel">Cancel</button><button id="settings-save" value="ok" class="primary">Save</button></div>
+  </form>
+</dialog>
+
+<div id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>
