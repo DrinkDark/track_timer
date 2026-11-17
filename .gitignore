@@ -1,0 +1,9 @@
+# runtime data: database, recordings, settings, calibration
+data/
+# Python / tests
+__pycache__/
+*.pyc
+.pytest_cache/
+# editor and OS
+.vscode/
+.DS_Store
