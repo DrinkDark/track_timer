@@ -1,0 +1,21 @@
+# Backend + UI in a container: http://localhost:8000
+#   docker compose up --build                 -> backend, camera comes from the host capture agent
+#   TIMING_SOURCE=sim docker compose up       -> built-in simulator, no camera needed
+#   docker compose --profile camera up        -> Linux only: camera read inside a container
+services:
+  timing:
+    build: .
+    ports: ["8000:8000"]
+    volumes: ["./data:/data"]
+    environment:
+      TIMING_SOURCE: ${TIMING_SOURCE:-agent}
+    restart: unless-stopped
+
+  capture:               # Linux only: camera read inside a container
+    profiles: ["camera"]
+    build: ./capture-agent
+    devices: ["/dev/video0:/dev/video0"]
+    environment:
+      SERVER: ws://timing:8000/ws/ingest
+      CAMERA: "0"
+    depends_on: [timing]
