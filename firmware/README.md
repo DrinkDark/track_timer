@@ -9,6 +9,7 @@ ESP32-S3 (WROOM-1U) firmware for the two field units of the spec (sections 3 to 
 | `start_unit/` | start unit: pistol input, sound out, start packet on cable and radio (spec section 3) |
 | `nano_tester/` | Arduino Nano stand-in for the beacon (3 LEDs, 2 buttons) to try the camera and blink detection before the real hardware |
 | `tools/beacon_link.py` | PC side of the protocol; sends start/ping through a USB-RS485 adapter for bench tests |
+| `tools/camera_count.py` | frame counting for the camera tests: free-running statistics, and the exact pulses-versus-frames burst test of the trigger option (spec section 11) |
 | `tools/upload_sound.py` | loads the pistol sound into the start unit |
 | `test/test_protocol.c` | host test of the protocol header (`cc -I common test/test_protocol.c && ./a.out`) |
 
@@ -57,6 +58,17 @@ setting `ch` on both units); no pairing, no encryption, so any device that sends
 * `$TRIG` logs `audio_handoff_us`, the time from the interrupt until the first chunk with sound was given to the I2S DMA.
   `$TX` logs `isr_to_tx_us`, the time the start packet waited for the transmit task.
 * Upload a sound: `python tools/upload_sound.py <port> pistol.wav` (mono, 16 bit, 44.1 kHz, up to about 2.9 s).
+
+## Camera trigger generator (option, spec section 11)
+The start unit can also drive a camera trigger on `PIN_CAM_TRIG` (3.3 V logic, one rising edge per frame) from a hardware
+timer, independent of the start logic. It is a test tool for the question "can the camera be locked to the start unit's clock?".
+* `camtrig <hz>` runs continuously (1 to 250 Hz) until `camtrig off`; `camtrig count` prints the pulse count and the actual rate
+  (the half period is rounded to 20 MHz ticks: 120 Hz is within 2 ppm).
+* `camtrig burst <n> <hz>` sends exactly n pulses and prints `$CAMTRIG done pulses=n`.
+* `python tools/camera_count.py burst --camera 0 --serial <port> --pulses 1200 --hz 120` sends a burst and checks that the
+  camera returned exactly n frames (it first checks that no frame arrives without a pulse, i.e. that the camera really is in
+  trigger mode). `camera_count.py stats` counts frames and gaps of a free-running camera (frame-rate stability, test 6).
+* Not tested with a camera. Whether the camera board wants a different voltage, pulse width or mode setting is in Arducam's documentation.
 
 ## Not verified, to measure on the bench (spec section 9)
 * **Audio latency and spread (test 2).** The I2S DMA holds 3 chunks of 16 frames (0.36 ms each), so the sound can start about
