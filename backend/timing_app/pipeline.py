@@ -111,6 +111,31 @@ class Pipeline:
         except queue.Full:
             self.frames_dropped_queue += 1
 
+    def end_stream(self) -> None:
+        """The source has no more frames (end of a video): closes a recording that is still open."""
+        try:
+            self.q.put((None, None, None), timeout=30)
+        except queue.Full:
+            pass
+
+    def reset_stream(self, keep_detector: bool = False) -> None:
+        """A new source starts counting frames from 0: forget the old frames."""
+        with self._lock:
+            if self.state in ("recording", "analysing"):
+                raise RuntimeError("A recording is in progress")
+            try:
+                while True:
+                    self.q.get_nowait()
+            except queue.Empty:
+                pass
+            self.ring.clear()
+            self.host_times.clear()
+            self.last_idx = -1
+            if self.state == "armed" and not keep_detector:
+                s = self.get_settings()
+                self.detector = FlashDetector(min_delta=s["flash_min_delta"], k_sigma=s["flash_k_sigma"],
+                                              confirm=s["flash_confirm"])
+
     # ---- control ------------------------------------------------------------------------------
     def arm(self, race_id: int) -> None:
         with self._lock:
@@ -157,11 +182,22 @@ class Pipeline:
                 continue
             self._busy = True
             try:
-                self._process(idx, t_host, jpeg)
+                if jpeg is None:                       # end of stream marker
+                    self._end_of_stream()
+                else:
+                    self._process(idx, t_host, jpeg)
             except Exception as exc:  # keep the pipeline alive whatever a frame does
                 self.message = f"Frame error: {exc!r}"
             finally:
                 self._busy = False
+
+    def _end_of_stream(self) -> None:
+        with self._lock:
+            state = self.state
+        if state == "recording":
+            self._finish_recording(self.get_settings())
+        elif state == "armed":
+            self.message = "The video ended without a start flash"
 
     def _process(self, idx: int, t_host: float, jpeg: bytes) -> None:
         s = self.get_settings()

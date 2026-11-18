@@ -21,6 +21,7 @@ from .export_pdf import build_pdf
 from .framestore import FrameReader
 from .pipeline import Pipeline, rotate_img
 from .simulator import SimScene, SimulatedSource
+from .videosource import VIDEO_EXT, VideoPlayer, probe
 
 HEADER = struct.Struct("<Qd")   # frame counter (u64), host time (f64), then the JPEG bytes
 
@@ -44,7 +45,10 @@ def create_app(data_dir: str | Path | None = None, source: str | None = None,
 
     pipeline = Pipeline(data, settings.get, calibration.get,
                         on_recorded=lambda rid, result: db.apply_recording(rid, result))
-    state = {"agent_connected": False, "sim": None}
+    state = {"agent_connected": False, "sim": None, "ingest": None}
+    player = VideoPlayer(pipeline)
+    videos = data / "videos"
+
 
     # Races left "armed" by a previous run go back to what they were.
     for r in db._q("SELECT id, n_flash FROM races WHERE status IN ('armed')"):
@@ -55,9 +59,11 @@ def create_app(data_dir: str | Path | None = None, source: str | None = None,
         pipeline.start()
         if scene is not None:
             src = SimulatedSource(scene, pipeline, paced=sim_paced)
+            src.is_muted = lambda: player.active or bool(state["ingest"])
             state["sim"] = src
             src.start()
         yield
+        player.stop()
         if state["sim"]:
             state["sim"].stop()
         pipeline.stop()
@@ -69,6 +75,7 @@ def create_app(data_dir: str | Path | None = None, source: str | None = None,
     app.state.calibration = calibration
     app.state.scene = scene
     app.state.sim_state = state
+    app.state.player = player
 
     def user_of(request: Request) -> str:
         return request.headers.get("x-user", "operator")
@@ -80,8 +87,10 @@ def create_app(data_dir: str | Path | None = None, source: str | None = None,
     @app.get("/api/state")
     def get_state():
         snap = pipeline.snapshot()
-        snap["source"] = source
+        snap["source"] = "video" if player.active else (state["ingest"] or source)
+        snap["configured_source"] = source
         snap["agent_connected"] = state["agent_connected"]
+        snap["video"] = player.status()
         return snap
 
     @app.get("/api/settings")
@@ -322,11 +331,30 @@ def create_app(data_dir: str | Path | None = None, source: str | None = None,
     # ---- frame ingest from the capture agent -----------------------------------------------
     @app.websocket("/ws/ingest")
     async def ingest(ws: WebSocket):
+        """Frames from the host capture agent (src=agent) or from the browser camera (src=browser)."""
         await ws.accept()
+        kind = "browser" if ws.query_params.get("src") == "browser" else "agent"
+        if not player.active:                  # while a video plays the camera frames are ignored
+            try:
+                pipeline.reset_stream()
+            except RuntimeError:
+                await ws.close(code=1013, reason="A recording is in progress")
+                return
         state["agent_connected"] = True
+        state["ingest"] = kind
+        blocked = player.active
         try:
             while True:
                 msg = await ws.receive_bytes()
+                if player.active:
+                    blocked = True
+                    continue
+                if blocked:                    # the video is over: the camera counts from its own frame 0
+                    try:
+                        pipeline.reset_stream()
+                    except RuntimeError:
+                        continue
+                    blocked = False
                 if len(msg) <= HEADER.size:
                     continue
                 idx, t_host = HEADER.unpack_from(msg, 0)
@@ -335,6 +363,82 @@ def create_app(data_dir: str | Path | None = None, source: str | None = None,
             pass
         finally:
             state["agent_connected"] = False
+            state["ingest"] = None
+
+    # ---- recorded videos -------------------------------------------------------------------
+    def video_path(name: str) -> Path:
+        p = videos / Path(name).name
+        if p.suffix.lower() not in VIDEO_EXT or not p.is_file():
+            raise HTTPException(404, "video not found")
+        return p
+
+    @app.get("/api/videos")
+    def list_videos():
+        out = []
+        for p in sorted(videos.glob("*")) if videos.exists() else []:
+            if p.suffix.lower() in VIDEO_EXT and p.is_file():
+                out.append({"name": p.name, "size": p.stat().st_size, **(probe(p) or {"error": "unreadable"})})
+        return {"files": out, "player": player.status()}
+
+    @app.post("/api/videos")
+    async def upload_video(request: Request, name: str):
+        base = Path(name).name
+        ext = Path(base).suffix.lower()
+        if ext not in VIDEO_EXT:
+            raise HTTPException(400, "Use one of: " + ", ".join(sorted(VIDEO_EXT)))
+        videos.mkdir(parents=True, exist_ok=True)
+        dest, k = videos / base, 1
+        while dest.exists():
+            dest = videos / f"{Path(base).stem}-{k}{ext}"
+            k += 1
+        tmp = dest.with_name(dest.name + ".part")
+        try:
+            with open(tmp, "wb") as f:
+                async for chunk in request.stream():
+                    f.write(chunk)
+            if probe(tmp.rename(dest)) is None:
+                raise HTTPException(400, "This file cannot be read as a video")
+        except HTTPException:
+            dest.unlink(missing_ok=True)
+            raise
+        finally:
+            tmp.unlink(missing_ok=True)
+        return {"name": dest.name}
+
+    @app.delete("/api/videos/{name}")
+    def delete_video(name: str):
+        p = video_path(name)
+        if player.active and player.name == p.name:
+            raise HTTPException(409, "This video is playing")
+        p.unlink()
+        return {"ok": True}
+
+    @app.post("/api/video/play")
+    def video_play(body: dict = Body(...)):
+        p = video_path(str(body.get("name", "")))
+        if pipeline.state in ("recording", "analysing"):
+            raise HTTPException(409, "A recording is in progress")
+        player.stop()
+        try:
+            info = probe(p)
+            if info and info["fps"] > 1 and body.get("set_fps", True):
+                settings.update({"nominal_fps": info["fps"]})
+            pipeline.reset_stream()
+            player.play(p, speed=float(body.get("speed", 1.0)), loop=bool(body.get("loop", False)),
+                        paced=bool(body.get("paced", True)))
+        except (ValueError, RuntimeError) as exc:
+            raise HTTPException(400, str(exc))
+        return player.status()
+
+    @app.post("/api/video/pause")
+    def video_pause(body: dict = Body(default={})):
+        player.pause(bool(body.get("paused", True)))
+        return player.status()
+
+    @app.post("/api/video/stop")
+    def video_stop():
+        player.stop()
+        return player.status()
 
     # ---- simulator -------------------------------------------------------------------------
     @app.post("/api/sim/start")

@@ -26,6 +26,15 @@ Open http://localhost:8000, click **+ Quick race**, **Arm**, then **Simulate sta
 
 Data (database, recordings, settings, calibration) is stored in `./data`.
 
+## Image source: live camera or recorded video
+The **Source** button in the header switches what feeds the live view:
+
+- **Host camera** (default): the capture agent above, 120 fps, the one to use for races.
+- **Browser camera**: opens a camera of the machine running the browser (localhost or https only) and sends its frames over the same WebSocket. For framing the shot and for tests: browsers rarely deliver more than 30–60 fps and the frame timing is not exact. Stop the host agent first.
+- **Recorded video**: **Import video…** uploads a file (mp4, mov, m4v, avi, mkv, webm) to `data/videos/`; **Play** feeds it to the pipeline at its own frame rate (speed 0.25–4×, optional loop). Arm a race, then play: the start flash in the video starts the recording and the race is analysed like a live one. A video that ends during a recording closes the recording. While a video plays, camera frames are ignored; **Stop** returns to the live camera. Playing a video sets the nominal fps in the settings to the video's frame rate.
+
+Times from a video are only as good as the video: a phone file recorded at 30 fps, or re-encoded, gives a coarser result than the 120 fps camera, and the reference LED must be visible for the frame rate to be measured.
+
 ## Without Docker
     pip install -r backend/requirements.txt
     cd backend && TIMING_SOURCE=sim TIMING_UI=../frontend python -m timing_app.main

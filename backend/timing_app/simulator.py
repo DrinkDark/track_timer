@@ -167,6 +167,7 @@ class SimulatedSource(threading.Thread):
         self.pipeline = pipeline
         self.paced = paced
         self.idx = 0
+        self.is_muted = lambda: False   # true while an external feed (camera, video) is active
         self._stop = threading.Event()
 
     def trigger(self, delay_s: float, race_times_s: dict[int, float], link: str = "radio") -> float:
@@ -186,6 +187,7 @@ class SimulatedSource(threading.Thread):
                 wait = due - time.monotonic()
                 if wait > 0:
                     time.sleep(wait)
-            jpeg = self.scene.render_jpeg(self.idx)
-            self.pipeline.push_frame(self.idx, time.monotonic(), jpeg, block=True)
+            if not self.is_muted():
+                jpeg = self.scene.render_jpeg(self.idx)
+                self.pipeline.push_frame(self.idx, time.monotonic(), jpeg, block=True)
             self.idx += 1

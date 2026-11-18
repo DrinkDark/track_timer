@@ -121,3 +121,18 @@ dialog input[type=number], dialog input[type=text] { width: 160px; padding: 3px 
 .race.sel .ln { background: color-mix(in srgb, var(--lc) 14%, #fff); }
 .race .pl { color: var(--muted); font-size: inherit; }
 .race .names { line-height: 1.8; }
+
+/* video bar and source dialog */
+#video-bar { margin: 6px 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: #f6f8fb; }
+#video-bar[hidden] { display: none; }
+.vb-top { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.vb-top span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#vb-prog { width: 100%; height: 6px; margin-top: 4px; }
+#dlg-source { min-width: 440px; max-width: 560px; }
+#dlg-source fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 8px 0; padding: 6px 10px 8px; }
+#dlg-source legend { padding: 0 6px; font-weight: 600; }
+#dlg-source .small { font-size: 12px; margin-top: 4px; }
+#dlg-source select { max-width: 260px; }
+.vrow { display: flex; align-items: center; gap: 6px; padding: 3px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.vrow .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vrow .meta { color: var(--muted); font-size: 12px; }

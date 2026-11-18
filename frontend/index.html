@@ -18,6 +18,7 @@
   <span class="spacer"></span>
   <a id="exp-csv" class="btn" href="#">CSV</a>
   <a id="exp-pdf" class="btn" href="#">PDF</a>
+  <button id="btn-source" title="Live camera or recorded video">Source</button>
   <button id="btn-calib">Calibration</button>
   <button id="btn-settings">Settings</button>
 </header>
@@ -44,6 +45,11 @@
           <button id="btn-arm" class="primary">Arm</button>
           <button id="btn-disarm">Disarm</button>
           <button id="btn-sim" hidden>Simulate start</button>
+        </div>
+        <div id="video-bar" hidden>
+          <div class="vb-top"><span id="vb-name"></span>
+            <button id="vb-pause" title="Pause or resume">Pause</button><button id="vb-stop" title="Back to the live camera">Stop</button></div>
+          <progress id="vb-prog" value="0" max="1"></progress>
         </div>
         <div id="live-msg" class="muted"></div>
         <table class="kv" id="live-kv"></table>
@@ -94,6 +100,33 @@
     <label>Radio latency <input name="radio_ms" type="number" step="0.01"></label>
     <label>Note <input name="note" type="text"></label>
     <div class="btns"><button value="cancel">Cancel</button><button id="calib-save" value="ok" class="primary">Save</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-source">
+  <form method="dialog">
+    <h3>Image source</h3>
+    <fieldset>
+      <legend>Live camera</legend>
+      <div class="muted" id="src-agent"></div>
+      <label>Camera in this browser <select id="cam-dev"><option value="">default</option></select></label>
+      <label>Size <select id="cam-res"><option>1280x720</option><option>1280x800</option><option>640x480</option><option>1920x1080</option></select></label>
+      <div class="btns"><button type="button" id="cam-toggle">Start browser camera</button></div>
+      <div class="muted small">A browser camera is for framing and tests: it rarely goes above 30–60 fps and its frame timing is not exact.
+        For races use the capture agent on the host (120 fps).</div>
+    </fieldset>
+    <fieldset>
+      <legend>Recorded video</legend>
+      <div class="btns">
+        <label class="btn">Import video…<input id="file-video" type="file" accept="video/*,.mkv,.avi,.mov,.mp4,.m4v,.webm" hidden></label>
+        <span id="up-prog" class="muted"></span>
+      </div>
+      <div id="video-list"></div>
+      <label>Speed <select id="vid-speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1× (real time)</option><option value="2">2×</option><option value="4">4×</option></select></label>
+      <label>Loop <input type="checkbox" id="vid-loop"></label>
+      <div class="muted small">Arm a race first, then play: the start flash in the video starts the recording like a live race. The settings nominal fps is set to the video's frame rate.</div>
+    </fieldset>
+    <div class="btns"><button value="close" class="primary">Close</button></div>
   </form>
 </dialog>
 

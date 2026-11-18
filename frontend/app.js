@@ -403,13 +403,15 @@ async function pollState() {
     const b = $("badge"); b.textContent = st.state.toUpperCase(); b.className = "badge " + st.state;
     $("live-msg").textContent = st.message;
     $("live-kv").innerHTML = [
-      ["source", st.source + (st.source === "agent" ? (st.agent_connected ? " (connected)" : " (not connected)") : "")],
+      ["source", st.source === "video" ? `video · ${st.video.name}` : st.source === "browser" ? "browser camera"
+        : st.source + (st.source === "agent" ? (st.agent_connected ? " (connected)" : " (not connected)") : "")],
       ["input", `${st.fps_in} fps · queue ${st.queue}`],
       ["frames", `${st.frames_in}` + (st.frames_dropped_queue ? ` · dropped ${st.frames_dropped_queue}` : "")],
       ["baseline", st.state === "armed" ? (st.baseline_ready ? "ready" : "learning…") : "–"],
       ["recording", st.state === "recording" ? `${st.recording_frames} frames` : "–"],
     ].map(([k, v]) => `<tr><td>${k}</td><td>${esc(v)}</td></tr>`).join("");
-    $("btn-sim").hidden = st.source !== "sim";
+    $("btn-sim").hidden = st.configured_source !== "sim" || st.source !== "sim";
+    renderVideoBar(st.video);
     if (was !== st.state) await refreshRaces();
     drawLiveOverlay(); renderLiveButtons();
   } catch (e) { /* server not reachable: keep polling */ }
@@ -496,3 +498,112 @@ $("live-img").addEventListener("load", drawLiveOverlay);
   setInterval(pollState, 500);
   setInterval(refreshRaces, 2000);
 })();
+
+
+/* ---------- image source: browser camera and recorded video ---------- */
+function renderVideoBar(v) {
+  const on = v && (v.state === "playing" || v.state === "paused");
+  $("video-bar").hidden = !on && !(v && v.state === "ended");
+  if (!v) return;
+  $("vb-name").textContent = `${v.name} · ${v.state}${v.state === "playing" ? ` ${v.speed}×` : ""}`;
+  $("vb-prog").max = Math.max(1, v.total); $("vb-prog").value = v.pos;
+  $("vb-pause").textContent = v.state === "paused" ? "Resume" : "Pause";
+  $("vb-pause").disabled = !on;
+}
+$("vb-pause").onclick = () => api("/api/video/pause", { method: "POST", body: { paused: S.state.video.state !== "paused" } }).then(pollState);
+$("vb-stop").onclick = () => api("/api/video/stop", { method: "POST" }).then(pollState);
+
+const Cam = { stream: null, ws: null, video: null, canvas: null, n: 0, inflight: 0, on: false, sent: 0 };
+async function camDevices() {
+  try {
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
+    const cur = $("cam-dev").value;
+    $("cam-dev").innerHTML = `<option value="">default</option>` + devs.map((d, i) =>
+      `<option value="${esc(d.deviceId)}">${esc(d.label || "Camera " + (i + 1))}</option>`).join("");
+    $("cam-dev").value = cur;
+  } catch (e) { /* no camera API */ }
+}
+async function camStart() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast("This browser cannot open a camera here (needs localhost or https)"); return; }
+  if (S.state.agent_connected && S.state.source === "agent") { toast("The host capture agent is connected: stop it first"); return; }
+  const [w, h] = $("cam-res").value.split("x").map(Number), dev = $("cam-dev").value;
+  try {
+    Cam.stream = await navigator.mediaDevices.getUserMedia({ audio: false,
+      video: { deviceId: dev ? { exact: dev } : undefined, width: { ideal: w }, height: { ideal: h }, frameRate: { ideal: 120 } } });
+  } catch (e) { toast("Camera: " + (e.message || e.name)); return; }
+  await camDevices();
+  const fps = Cam.stream.getVideoTracks()[0].getSettings().frameRate;
+  if (fps > 1) await api("/api/settings", { method: "PUT", body: { nominal_fps: Math.round(fps * 10) / 10 } });
+  Cam.video = document.createElement("video"); Cam.video.muted = true; Cam.video.playsInline = true;
+  Cam.video.srcObject = Cam.stream; await Cam.video.play();
+  Cam.canvas = document.createElement("canvas");
+  Cam.ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/ingest?src=browser`);
+  Cam.ws.binaryType = "arraybuffer";
+  Cam.ws.onclose = () => { if (Cam.on) camStop(true); };
+  await new Promise((res, rej) => { Cam.ws.onopen = res; Cam.ws.onerror = () => rej(new Error("server connection failed")); }).catch((e) => { toast(e.message); camStop(); });
+  if (!Cam.ws) return;
+  Cam.on = true; Cam.n = 0; Cam.inflight = 0; renderCamButton();
+  const grab = () => {
+    if (!Cam.on) return;
+    const v = Cam.video;
+    if (v.videoWidth && Cam.inflight < 3 && Cam.ws.bufferedAmount < 4e6) {
+      if (Cam.canvas.width !== v.videoWidth) { Cam.canvas.width = v.videoWidth; Cam.canvas.height = v.videoHeight; }
+      Cam.canvas.getContext("2d").drawImage(v, 0, 0);
+      const idx = Cam.n++, t = Date.now() / 1000; Cam.inflight++;
+      Cam.canvas.toBlob(async (blob) => {
+        try {
+          if (blob && Cam.on) {
+            const head = new ArrayBuffer(16), dv = new DataView(head);
+            dv.setBigUint64(0, BigInt(idx), true); dv.setFloat64(8, t, true);
+            Cam.ws.send(new Blob([head, blob]));
+          }
+        } finally { Cam.inflight--; }
+      }, "image/jpeg", 0.85);
+    }
+    if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(grab); else requestAnimationFrame(grab);
+  };
+  grab();
+  toast(`Browser camera on (${Math.round(fps || 0)} fps requested)`);
+}
+function camStop(lost) {
+  Cam.on = false;
+  if (Cam.stream) Cam.stream.getTracks().forEach((t) => t.stop());
+  if (Cam.ws) { Cam.ws.onclose = null; try { Cam.ws.close(); } catch (e) { /* closed */ } }
+  Cam.stream = Cam.ws = Cam.video = null; renderCamButton();
+  if (lost) toast("Browser camera disconnected");
+}
+function renderCamButton() { $("cam-toggle").textContent = Cam.on ? "Stop browser camera" : "Start browser camera"; }
+$("cam-toggle").onclick = () => (Cam.on ? camStop() : camStart());
+window.addEventListener("beforeunload", () => camStop());
+
+async function renderVideoList() {
+  const r = await api("/api/videos");
+  $("video-list").innerHTML = r.files.length ? r.files.map((f) => `<div class="vrow" data-n="${esc(f.name)}">
+      <span class="nm" title="${esc(f.name)}">${esc(f.name)}</span>
+      <span class="meta">${f.error ? "unreadable" : `${f.w}×${f.h} · ${f.fps} fps · ${f.frames} fr`}</span>
+      <button data-a="play" ${f.error ? "disabled" : ""}>Play</button><button data-a="del" title="Delete the file">✕</button></div>`).join("")
+    : `<div class="muted">No video imported yet</div>`;
+  const st = S.state.agent_connected ? "Host capture agent connected." : "Host capture agent not connected (see README).";
+  $("src-agent").textContent = S.state.configured_source === "sim" ? "Source: built-in simulator." : st;
+}
+$("video-list").onclick = async (ev) => {
+  const b = ev.target.closest("button"); if (!b) return;
+  const name = b.closest(".vrow").dataset.n;
+  if (b.dataset.a === "del") { if (!confirm(`Delete ${name}?`)) return; await api(`/api/videos/${encodeURIComponent(name)}`, { method: "DELETE" }); renderVideoList(); return; }
+  if (Cam.on) camStop();
+  await api("/api/video/play", { method: "POST", body: { name, speed: Number($("vid-speed").value), loop: $("vid-loop").checked } });
+  $("dlg-source").close(); await pollState();
+  toast(S.state.state === "armed" ? "Playing: the flash will start the recording" : "Playing. Arm a race to record the start flash");
+};
+$("file-video").onchange = (ev) => {
+  const f = ev.target.files[0]; ev.target.value = ""; if (!f) return;
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/videos?name=" + encodeURIComponent(f.name));
+  xhr.upload.onprogress = (e) => { $("up-prog").textContent = e.lengthComputable ? `Uploading ${Math.round(100 * e.loaded / e.total)} %` : "Uploading…"; };
+  xhr.onload = () => { $("up-prog").textContent = "";
+    if (xhr.status === 200) { toast("Video imported"); renderVideoList(); }
+    else { let m = xhr.statusText; try { m = JSON.parse(xhr.responseText).detail || m; } catch (e) { /* plain text */ } toast(m); } };
+  xhr.onerror = () => { $("up-prog").textContent = ""; toast("Upload failed"); };
+  xhr.send(f);
+};
+$("btn-source").onclick = async () => { await pollState(); await camDevices(); await renderVideoList(); $("dlg-source").showModal(); };
